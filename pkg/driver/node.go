@@ -10,6 +10,7 @@ import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/mnecas/nbdkit-csi/pkg/nbdkit"
 	"github.com/mnecas/nbdkit-csi/pkg/overlay"
+	"github.com/mnecas/nbdkit-csi/pkg/source"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"k8s.io/klog/v2"
@@ -19,6 +20,7 @@ type NodeServer struct {
 	csi.UnimplementedNodeServer
 	nodeID  string
 	manager *nbdkit.Manager
+	stager  *source.SourceStager
 }
 
 func (s *NodeServer) NodeGetInfo(_ context.Context, _ *csi.NodeGetInfoRequest) (*csi.NodeGetInfoResponse, error) {
@@ -41,7 +43,7 @@ func (s *NodeServer) NodeGetCapabilities(_ context.Context, _ *csi.NodeGetCapabi
 	}, nil
 }
 
-func (s *NodeServer) NodeStageVolume(_ context.Context, req *csi.NodeStageVolumeRequest) (*csi.NodeStageVolumeResponse, error) {
+func (s *NodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVolumeRequest) (*csi.NodeStageVolumeResponse, error) {
 	volumeID := req.GetVolumeId()
 	if volumeID == "" {
 		return nil, status.Error(codes.InvalidArgument, "volume ID is required")
@@ -57,8 +59,10 @@ func (s *NodeServer) NodeStageVolume(_ context.Context, req *csi.NodeStageVolume
 	}
 
 	var passwordFile string
+	var sourcePV string
 	if nbdkit.IsOverlay(cfg) {
-		overlayCfg, err := overlay.BuildOverlayConfig(cfg, s.manager)
+		sourcePV = cfg.SourcePV
+		overlayCfg, err := overlay.BuildOverlayConfig(ctx, cfg, s.manager, s.stager, s.nodeID)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "failed to build overlay config: %v", err)
 		}
@@ -70,24 +74,33 @@ func (s *NodeServer) NodeStageVolume(_ context.Context, req *csi.NodeStageVolume
 		}
 	}
 
-	_, err = s.manager.StartNbdkit(volumeID, cfg, passwordFile)
+	state, err := s.manager.StartNbdkit(volumeID, cfg, passwordFile)
 	if err != nil {
 		cleanupPasswordFile(volumeID)
 		return nil, status.Errorf(codes.Internal, "failed to start nbdkit: %v", err)
 	}
+	state.SourcePV = sourcePV
 
 	klog.Infof("NodeStageVolume succeeded for volume %s", volumeID)
 	return &csi.NodeStageVolumeResponse{}, nil
 }
 
-func (s *NodeServer) NodeUnstageVolume(_ context.Context, req *csi.NodeUnstageVolumeRequest) (*csi.NodeUnstageVolumeResponse, error) {
+func (s *NodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstageVolumeRequest) (*csi.NodeUnstageVolumeResponse, error) {
 	volumeID := req.GetVolumeId()
 	if volumeID == "" {
 		return nil, status.Error(codes.InvalidArgument, "volume ID is required")
 	}
 
+	// Get the volume state to check if it has a source PV to unstage
+	volState := s.manager.GetVolume(volumeID)
+
 	if err := s.manager.StopNbdkit(volumeID); err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to stop nbdkit: %v", err)
+	}
+
+	// Unstage source volume if we staged it
+	if volState != nil && volState.SourcePV != "" {
+		overlay.UnstageSource(ctx, volState.SourcePV, s.stager)
 	}
 
 	cleanupPasswordFile(volumeID)

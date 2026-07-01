@@ -9,6 +9,7 @@ import (
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/mnecas/nbdkit-csi/pkg/nbdkit"
+	"github.com/mnecas/nbdkit-csi/pkg/source"
 	"google.golang.org/grpc"
 	"k8s.io/klog/v2"
 )
@@ -23,6 +24,7 @@ type Driver struct {
 	version  string
 
 	manager *nbdkit.Manager
+	stager  *source.SourceStager
 
 	srv *grpc.Server
 	mu  sync.Mutex
@@ -34,11 +36,17 @@ func New(nodeID, endpoint, version string) (*Driver, error) {
 		return nil, fmt.Errorf("failed to create nbdkit manager: %w", err)
 	}
 
+	stager, err := source.NewSourceStager()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create source stager: %w", err)
+	}
+
 	return &Driver{
 		nodeID:   nodeID,
 		endpoint: endpoint,
 		version:  version,
 		manager:  mgr,
+		stager:   stager,
 	}, nil
 }
 
@@ -72,6 +80,7 @@ func (d *Driver) Run() error {
 	csi.RegisterNodeServer(d.srv, &NodeServer{
 		nodeID:  d.nodeID,
 		manager: d.manager,
+		stager:  d.stager,
 	})
 
 	csi.RegisterControllerServer(d.srv, &ControllerServer{})

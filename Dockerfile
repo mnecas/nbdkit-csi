@@ -22,6 +22,7 @@ RUN dnf install -y \
     nbdkit-stats-filter \
     nbdkit-xz-filter \
     nbd \
+    nfs-utils \
     e2fsprogs \
     xfsprogs \
     util-linux \

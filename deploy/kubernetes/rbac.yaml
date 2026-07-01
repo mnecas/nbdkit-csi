@@ -16,6 +16,9 @@ rules:
     resources: ["persistentvolumeclaims"]
     verbs: ["get", "list"]
   - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+  - apiGroups: [""]
     resources: ["nodes"]
     verbs: ["get"]
 ---

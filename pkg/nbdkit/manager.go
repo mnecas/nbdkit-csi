@@ -21,6 +21,7 @@ type VolumeState struct {
 	NBDDevice  string
 	PID        int
 	Config     *Config
+	SourcePV   string
 }
 
 type Manager struct {
