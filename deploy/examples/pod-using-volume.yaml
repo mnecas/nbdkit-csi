@@ -1,0 +1,35 @@
+# Example: Pod consuming a block volume from nbdkit-csi
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-nbdkit-block
+spec:
+  containers:
+    - name: test
+      image: fedora:latest
+      command: ["sleep", "infinity"]
+      volumeDevices:
+        - name: data
+          devicePath: /dev/xvda
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: vmware-disk-1
+---
+# Example: Pod consuming a filesystem volume from nbdkit-csi
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-nbdkit-fs
+spec:
+  containers:
+    - name: test
+      image: fedora:latest
+      command: ["sleep", "infinity"]
+      volumeMounts:
+        - name: data
+          mountPath: /mnt/data
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: delayed-disk

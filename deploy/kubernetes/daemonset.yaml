@@ -1,0 +1,95 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nbdkit-csi-node
+  namespace: nbdkit-csi
+spec:
+  selector:
+    matchLabels:
+      app: nbdkit-csi-node
+  template:
+    metadata:
+      labels:
+        app: nbdkit-csi-node
+    spec:
+      serviceAccountName: nbdkit-csi-node
+      hostNetwork: true
+      containers:
+        - name: nbdkit-csi
+          image: quay.io/mnecas0/nbdkit-csi:latest
+          imagePullPolicy: Always
+          args:
+            - "--endpoint=unix:///csi/csi.sock"
+            - "--node-id=$(NODE_NAME)"
+            - "--v=4"
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+            - name: kubelet-dir
+              mountPath: /var/lib/kubelet
+              mountPropagation: Bidirectional
+            - name: nbdkit-state
+              mountPath: /var/lib/nbdkit-csi
+            - name: dev
+              mountPath: /dev
+            - name: sys
+              mountPath: /sys
+            - name: modules
+              mountPath: /lib/modules
+              readOnly: true
+
+        - name: node-driver-registrar
+          image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.12.0
+          args:
+            - "--csi-address=/csi/csi.sock"
+            - "--kubelet-registration-path=/var/lib/kubelet/plugins/nbdkit.csi.k8s.io/csi.sock"
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+            - name: registration-dir
+              mountPath: /registration
+
+        - name: liveness-probe
+          image: registry.k8s.io/sig-storage/livenessprobe:v2.14.0
+          args:
+            - "--csi-address=/csi/csi.sock"
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+
+      volumes:
+        - name: socket-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins/nbdkit.csi.k8s.io
+            type: DirectoryOrCreate
+        - name: kubelet-dir
+          hostPath:
+            path: /var/lib/kubelet
+            type: Directory
+        - name: registration-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins_registry
+            type: Directory
+        - name: nbdkit-state
+          hostPath:
+            path: /var/lib/nbdkit-csi
+            type: DirectoryOrCreate
+        - name: dev
+          hostPath:
+            path: /dev
+            type: Directory
+        - name: sys
+          hostPath:
+            path: /sys
+            type: Directory
+        - name: modules
+          hostPath:
+            path: /lib/modules
+            type: Directory
